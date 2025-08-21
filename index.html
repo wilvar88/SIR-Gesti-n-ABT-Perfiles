@@ -3,20 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gestión de ABT</title>
+  <title>Perfiles</title>
   <link rel="stylesheet" href="style.css" />
+</head>
+<body>
 
   <main id="board" aria-label="Imagen con puntos interactivos">
     <!-- Cambia la ruta si tu imagen tiene otro nombre -->
     <img id="base" src="img/Sir-Cuentas ABT-Perfiles 2.png" alt="Imagen base" />
-
     <!-- Capas superpuestas -->
     <div id="hotspots" aria-live="polite"></div>
     <div id="actions" aria-label="Botones de acción"></div>
     <div id="coords" hidden></div>
   </main>
 
-  <script src="data.js"></script>
-  <script src="script.js"></script>
+  <footer></footer>
+
+  <noscript>Esta página requiere JavaScript para mostrar los tooltips y botones interactivos.</noscript>
+
+  <!-- Importante: data.js primero (puebla #hotspots / #actions), luego script.js (maneja el clic) -->
+  <script src="data.js" defer></script>
+  <script src="script.js" defer></script>
 </body>
 </html>
