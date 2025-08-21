@@ -35,7 +35,7 @@ window.BUTTONS = [
   {
     x: 95, y: 95,
     label: "Manual",
-    href: "manuales/MANUAL SIR EQUIPOS.pdf",
+    href: "manuales/MANUAL SIR Gestión ABT.pdf",
     target: "blank",
     // Puedes mantener variant/size si quieres estilos base y luego override con style:
     variant: "ghost",
