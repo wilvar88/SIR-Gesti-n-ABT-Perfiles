@@ -1,200 +1,230 @@
-/* script.js — Hotspots con auto-fit + Botones flotantes parametrizables
-   Requiere en el HTML los ids: #board, #base, #hotspots, #actions, #coords
-   Y que data.js defina:
-     window.HOTSPOTS = [{x,y,n,title,text, link?, linkText?, align?, vpos?}, ...]
-     window.BUTTONS  = [{x,y,label, href, target?, replace?, download?, confirm?, variant?, size?}, ...]
-*/
+// script.js — Tooltips por clic, edge-aware y compatibilidad con enlaces de #actions
 (function () {
-  const img     = document.getElementById('base');      // IMAGEN (límites reales)
-  const hsLayer = document.getElementById('hotspots');  // capa hotspots
-  const acLayer = document.getElementById('actions');   // capa botones
-  const coords  = document.getElementById('coords');    // visor coordenadas
-  let coordMode = false;
+  'use strict';
 
-  // ---------- Render HOTSPOTS ----------
-  function renderHotspots() {
-    if (!Array.isArray(window.HOTSPOTS)) { hsLayer.innerHTML = ''; return; }
-    hsLayer.innerHTML = '';
+  const ROOT  = document;
+  const BOARD = document.getElementById('board');
+  const SAFE  = 8; // margen interior para evitar que el tooltip toque los bordes del board
 
-    window.HOTSPOTS.forEach(h => {
-      const btn = document.createElement('button');
-      btn.className = 'hotspot';
-      btn.type = 'button';
-      btn.style.left = (h.x || 0) + '%';
-      btn.style.top  = (h.y || 0) + '%';
-      btn.setAttribute('aria-label', h.title || 'Detalle');
+  if (!BOARD) return;
 
-      const n     = (h.n ?? '') + '';
-      const title = (h.title || 'Detalle').replace(/</g, '&lt;');
-      const text  = (h.text  || '').replace(/</g, '&lt;');
+  /* =========================
+     Utilidades
+     ========================= */
 
-      const linkHTML = h.link
-        ? `<p class="cta"><a class="tip-link" href="${h.link}" target="_blank" rel="noopener noreferrer">${h.linkText || 'Ver más'}</a></p>`
-        : '';
-
-      btn.innerHTML = `
-        <span class="num">${n}</span>
-        <span class="tip" role="tooltip">
-          <h3>${title}</h3>
-          <p>${text}</p>
-          ${linkHTML}
-        </span>
-      `;
-
-      // Respeta orientaciones fijas si las definiste en data.js
-      if (h.align === 'left' || h.align === 'right') btn.dataset.align = h.align;
-      if (h.vpos === 'top' || h.vpos === 'bottom')   btn.dataset.vpos  = h.vpos;
-
-      // Ajuste automático al entrar con mouse/teclado
-      btn.addEventListener('pointerenter', () => fitTooltip(btn));
-      btn.addEventListener('focus',        () => fitTooltip(btn));
-
-      hsLayer.appendChild(btn);
+  function closeAll() {
+    ROOT.querySelectorAll('.hotspot.open').forEach(h => {
+      h.classList.remove('open');
+      h.setAttribute('aria-expanded', 'false');
     });
+    ROOT.querySelectorAll('.tip.open').forEach(t => t.classList.remove('open'));
   }
 
-  // ---------- Render BOTONES ----------
-  function renderButtons() {
-    if (!Array.isArray(window.BUTTONS)) { acLayer.innerHTML = ''; return; }
-    acLayer.innerHTML = '';
-
-    window.BUTTONS.forEach(b => {
-      // Usamos <a> para permitir target/_blank y download nativos
-      const a = document.createElement('a');
-      a.className = 'action-btn';
-      if (b.variant) a.classList.add(b.variant);    // 'secondary', 'ghost'
-      if (b.size)    a.classList.add(b.size);       // 'sm', 'lg'
-
-      a.style.left = (b.x || 0) + '%';
-      a.style.top  = (b.y || 0) + '%';
-
-      a.textContent = b.label || 'Abrir';
-      a.href = b.href || '#';
-
-      // target: 'blank' o 'self' (default self)
-      const target = (b.target || 'self').toLowerCase();
-      if (target === 'blank') {
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-      } else {
-        a.target = '_self';
-      }
-
-      // download
-      if (b.download) {
-        a.setAttribute('download', typeof b.download === 'string' ? b.download : '');
-      }
-
-      // replace (reemplazar la URL actual en el historial)
-      if (b.replace) {
-        a.addEventListener('click', (e) => {
-          // si hay confirmación, úsala
-          if (b.confirm) {
-            const ok = window.confirm(b.confirm);
-            if (!ok) { e.preventDefault(); return; }
-          }
-          // misma ventana, reemplazando el historial
-          e.preventDefault();
-          try { window.location.replace(b.href); }
-          catch { window.location.href = b.href; }
-        });
-      } else if (b.confirm) {
-        a.addEventListener('click', (e) => {
-          const ok = window.confirm(b.confirm);
-          if (!ok) e.preventDefault();
-        });
-      }
-
-      acLayer.appendChild(a);
-    });
+  function getTipForHotspot(h) {
+    if (!h) return null;
+    // Preferencia: tip anidado
+    let tip = h.querySelector('.tip');
+    if (tip) return tip;
+    // Respaldo: tip como siguiente hermano
+    const next = h.nextElementSibling;
+    if (next && next.classList && next.classList.contains('tip')) return next;
+    return null;
   }
 
-  // ---------- Auto-ajuste de tooltips (no salirse de la imagen) ----------
-  function setOrientation(h, orient) {
-    // orient = 'top' (default), 'bottom', 'left', 'right'
-    h.removeAttribute('data-align');
-    h.removeAttribute('data-vpos');
-    if (orient === 'left' || orient === 'right') {
-      h.dataset.align = orient;
-    } else if (orient === 'bottom') {
-      h.dataset.vpos = 'bottom';
-    } else if (orient === 'top') {
-      h.dataset.vpos = 'top';
-    }
+  function resetTipPosition(h, tip) {
+    delete h.dataset.align; // 'left' | 'right'
+    delete h.dataset.vpos;  // 'top'  | 'bottom'
+    tip.style.marginLeft = '0px';
+    tip.style.marginTop  = '0px';
   }
 
-  function fits(rect, bounds, pad) {
-    return rect.left   >= bounds.left + pad &&
-           rect.right  <= bounds.right - pad &&
-           rect.top    >= bounds.top  + pad &&
-           rect.bottom <= bounds.bottom - pad;
-  }
-
-  function fitTooltip(hotspot) {
-    const tip = hotspot.querySelector('.tip');
+  // Coloca el tooltip evitando desbordes (auto-orientación + clamp)
+  function placeTip(h) {
+    const tip = getTipForHotspot(h);
     if (!tip) return;
 
-    const bounds = img.getBoundingClientRect(); // límites reales
-    const pad = 6;
-    const ORDER = ['right', 'left', 'bottom', 'top'];
+    resetTipPosition(h, tip);
 
-    for (const o of ORDER) {
-      setOrientation(hotspot, o);
-      void tip.offsetWidth; // reflow para medir
-      const r = tip.getBoundingClientRect();
-      if (fits(r, bounds, pad)) return;
+    // Aseguramos visibilidad para medir
+    const wasOpen = h.classList.contains('open');
+    if (!wasOpen) {
+      h.classList.add('open');
+      tip.classList.add('open'); // por si el tip no está anidado
     }
-    setOrientation(hotspot, 'top'); // fallback
+
+    // Force reflow para obtener medidas correctas
+    void tip.offsetWidth;
+
+    const boardRect = BOARD.getBoundingClientRect();
+    const spotRect  = h.getBoundingClientRect();
+
+    // Intento 1: TOP (ya es el default)
+    let tipRect = tip.getBoundingClientRect();
+
+    if (tipRect.top < boardRect.top + SAFE) {
+      // No cabe arriba → intentar BOTTOM
+      h.dataset.vpos = 'bottom';
+      tip.style.marginLeft = '0px';
+      tip.style.marginTop  = '0px';
+      tipRect = tip.getBoundingClientRect();
+
+      if (tipRect.bottom > boardRect.bottom - SAFE) {
+        // Tampoco cabe abajo → elegir izquierda o derecha según espacio disponible
+        delete h.dataset.vpos;
+        const spaceRight = boardRect.right - spotRect.right;
+        const spaceLeft  = spotRect.left  - boardRect.left;
+        h.dataset.align = (spaceRight >= spaceLeft) ? 'right' : 'left';
+        tip.style.marginTop = '0px';
+        tipRect = tip.getBoundingClientRect();
+
+        // Clamp vertical
+        let dy = 0;
+        if (tipRect.top < boardRect.top + SAFE) {
+          dy += (boardRect.top + SAFE - tipRect.top);
+        }
+        if (tipRect.bottom > boardRect.bottom - SAFE) {
+          dy -= (tipRect.bottom - (boardRect.bottom - SAFE));
+        }
+        tip.style.marginTop = `${dy}px`;
+      } else {
+        // BOTTOM elegido → clamp horizontal
+        let dx = 0;
+        if (tipRect.left < boardRect.left + SAFE) {
+          dx += (boardRect.left + SAFE - tipRect.left);
+        }
+        if (tipRect.right > boardRect.right - SAFE) {
+          dx -= (tipRect.right - (boardRect.right - SAFE));
+        }
+        tip.style.marginLeft = `${dx}px`;
+      }
+    } else {
+      // TOP válido → clamp horizontal
+      let dx = 0;
+      if (tipRect.left < boardRect.left + SAFE) {
+        dx += (boardRect.left + SAFE - tipRect.left);
+      }
+      if (tipRect.right > boardRect.right - SAFE) {
+        dx -= (tipRect.right - (boardRect.right - SAFE));
+      }
+      tip.style.marginLeft = `${dx}px`;
+    }
+
+    // Si lo abrimos solo para medir, lo devolvemos a cerrado
+    if (!wasOpen) {
+      h.classList.remove('open');
+      tip.classList.remove('open');
+    }
   }
 
-  // ---------- Modo coordenadas (tecla E) ----------
-  function toggleCoordMode() {
-    coordMode = !coordMode;
-    coords.hidden = !coordMode;
-    if (coordMode) coords.textContent = 'Modo coordenadas: clic copia { x:%, y:% }';
+  function openHotspot(h) {
+    const tip = getTipForHotspot(h);
+    closeAll(); // apertura exclusiva
+    h.classList.add('open');
+    h.setAttribute('aria-expanded', 'true');
+    if (tip) tip.classList.add('open'); // respaldo si el tip no está anidado
+    placeTip(h); // posiciona con edge-awareness
   }
 
-  function onMove(e) {
-    if (!coordMode) return;
-    const r = img.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width) * 100;
-    const y = ((e.clientY - r.top) / r.height) * 100;
-    coords.textContent = `x:${x.toFixed(2)}%  y:${y.toFixed(2)}%`;
+  function closeHotspot(h) {
+    const tip = getTipForHotspot(h);
+    h.classList.remove('open');
+    h.setAttribute('aria-expanded', 'false');
+    if (tip) tip.classList.remove('open');
   }
 
-  function onClick(e) {
-    if (!coordMode) return;
-    const r = img.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width) * 100;
-    const y = ((e.clientY - r.top) / r.height) * 100;
-    const snippet = `{ x: ${x.toFixed(2)}, y: ${y.toFixed(2)}, n: 0, title: "Título", text: "Descripción" },`;
-    try { navigator.clipboard.writeText(snippet); } catch {}
-    coords.textContent = `Copiado: ${snippet}`;
-  }
+  /* =========================
+     Listeners globales
+     ========================= */
 
-  // ---------- Inicialización ----------
-  window.addEventListener('load', () => {
-    renderHotspots();
-    renderButtons();
+  ROOT.addEventListener('click', (e) => {
+    // 1) Si el clic fue en un enlace/botón de #actions, no interferir
+    if (e.target.closest('#actions a, #actions button')) {
+      return; // deja que el navegador siga el enlace o ejecute el botón
+    }
 
-    const adjustAll = () =>
-      hsLayer.querySelectorAll('.hotspot').forEach(h => fitTooltip(h));
+    // 2) Si el clic fue dentro de un tooltip, deja interactuar sin cerrar
+    if (e.target.closest('.tip')) {
+      e.stopPropagation();
+      return;
+    }
 
-    if (img.complete) adjustAll();
-    else img.addEventListener('load', adjustAll);
+    // 3) Si el clic fue en un hotspot (o un hijo), togglear
+    const hotspot = e.target.closest('.hotspot');
+    if (hotspot) {
+      e.stopPropagation();
+      if (hotspot.classList.contains('open')) {
+        closeHotspot(hotspot);
+      } else {
+        if (!hotspot.hasAttribute('aria-expanded')) {
+          hotspot.setAttribute('aria-expanded', 'false');
+        }
+        openHotspot(hotspot);
+      }
+      return;
+    }
 
-    setTimeout(adjustAll, 120); // por si cambian fuentes/layout
+    // 4) Clic fuera → cerrar todo
+    closeAll();
   });
 
+  // Cerrar con ESC
+  ROOT.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAll();
+  });
+
+  // Reposicionar tooltips abiertos cuando cambia el tamaño
   window.addEventListener('resize', () => {
-    hsLayer.querySelectorAll('.hotspot').forEach(h => fitTooltip(h));
+    ROOT.querySelectorAll('.hotspot.open').forEach(placeTip);
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'e') toggleCoordMode();
-  });
-  img.addEventListener('mousemove', onMove);
-  img.addEventListener('click', onClick);
+  // Reposicionar cuando la imagen base termina de cargar (por si cambia tamaño)
+  const baseImg = document.getElementById('base');
+  if (baseImg && !baseImg.complete) {
+    baseImg.addEventListener('load', () => {
+      ROOT.querySelectorAll('.hotspot.open').forEach(placeTip);
+    });
+  }
 
-  
+  // Accesibilidad básica para hotspots (estáticos y dinámicos)
+  const ensureAccessibility = () => {
+    ROOT.querySelectorAll('.hotspot').forEach(h => {
+      if (!h.hasAttribute('aria-expanded')) h.setAttribute('aria-expanded', 'false');
+      if (h.tagName.toLowerCase() === 'button' && !h.hasAttribute('type')) {
+        h.setAttribute('type', 'button'); // evita submit si hay forms
+      }
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ensureAccessibility);
+  } else {
+    ensureAccessibility();
+  }
+
+  // Si data.js inserta hotspots luego, actualiza accesibilidad y re-posiciona si hay abiertos
+  const mo = new MutationObserver(() => {
+    ensureAccessibility();
+    ROOT.querySelectorAll('.hotspot.open').forEach(placeTip);
+  });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+
+  // (Opcional) visor de coordenadas con tecla "E"
+  const coords = document.getElementById('coords');
+  if (coords) {
+    let show = false;
+    const updateCoords = (ev) => {
+      if (!show) return;
+      const rect = BOARD.getBoundingClientRect();
+      const x = ((ev.clientX - rect.left) / rect.width) * 100;
+      const y = ((ev.clientY - rect.top)  / rect.height) * 100;
+      coords.textContent = `x:${x.toFixed(1)}%  y:${y.toFixed(1)}%`;
+    };
+    BOARD.addEventListener('mousemove', updateCoords);
+    document.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'e') {
+        show = !show;
+        coords.hidden = !show;
+      }
+    });
+  }
 })();
