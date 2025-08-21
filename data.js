@@ -14,7 +14,7 @@ window.BUTTONS = [
   { x: 95, y: 95, label: "Manual",        href: "manuales/MANUAL SIR Gestión ABT.pdf", target: "blank", variant: "ghost" },
 
   { x: 90.0, y: 43.6, label: "+ Añadir Nuevo Perfil",
-  href: "https://wilvar88.github.io/SIR-2/",
+  href: "https://wilvar88.github.io/SIR-ABT-Crear-Perfil/",
   target: "self",
   size: "w135h27", }   // ← usará esa medida exacta , 
 
