@@ -1,5 +1,5 @@
 /* =========================
-   style.css — versión completa
+   style.css — versión completa (edge-aware + z-index + enlaces OK)
    ========================= */
 
 :root{
@@ -7,8 +7,8 @@
   --spot-outline: 3px;
   --tip-max: 320px;
   --tip-pad: 10px;
-  --brand: #7367f0;         /* Naranja */
-  --ok: #15B79E;            /* verde */
+  --brand: #7367f0;         /* color principal */
+  --ok: #15B79E;
   --text-dark: #0b1220;
   --text-mid: #334;
   --bg: #f6f8fb;
@@ -35,7 +35,7 @@ h1{ font-size: clamp(10px, 3vw, 26px); margin:.5rem 0; }
 .hint{ margin:0; color:var(--text-mid); padding:.25rem 0; }
 
 code{ background:#eef1f7; padding:.1rem .15rem; border-radius:.4rem }
-kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weight:1700 }
+kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weight:700 }
 
 /* ---- Lienzo principal ---- */
 #board{
@@ -45,7 +45,7 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
   background:#fff;
   border-radius:19px;
   box-shadow:0 6px 24px rgba(12,21,42,.08);
-  overflow:hidden;            /* Nada se sale del marco */
+  overflow:hidden;            /* recorta para que el tooltip no se salga del marco */
 }
 
 #base{ display:block; width:100%; height:auto; }
@@ -54,6 +54,15 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
 #hotspots, #actions{
   position:absolute;
   inset:0;
+}
+
+/* Orden de capas: hotspots por encima de actions */
+#actions{ z-index:100; }
+#hotspots{
+  z-index:200;
+  /* Muy importante: deja pasar clics al contenido de abajo,
+     salvo en los elementos interactivos (los definimos más abajo) */
+  pointer-events:none;
 }
 
 /* =========================
@@ -72,10 +81,15 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
   box-shadow:0 0 0 var(--spot-outline) rgba(21,94,239,.2), 0 2px 8px rgba(0,0,0,.15);
   transform:translate(-50%,-50%);
   cursor:pointer;
-  z-index:1;                 /* base */
+  z-index:1;
+  /* Reactiva los eventos solo en el hotspot */
+  pointer-events:auto;
 }
 .hotspot:focus{ outline:3px solid #88a8ff; outline-offset:2px; }
-.hotspot:is(:hover, :focus-within){ z-index:60; } /* el activo va al frente */
+
+/* Cuando esté abierto o con focus, súbelo sobre todo */
+.hotspot.open,
+.hotspot:focus-within{ z-index:10000; }
 
 .hotspot .num{
   position:absolute; inset:0;
@@ -87,12 +101,11 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
 .tip{
   position:absolute;
 
-  /* Por defecto: ARRIBA y centrado (robusto para bordes laterales) */
+  /* Posición por defecto: ARRIBA y centrado respecto al hotspot */
   left:50%;
   bottom: calc(100% + 8px);
   transform: translateX(-50%);
-
-  min-width:260px;
+  min-width:160px;
   max-width:var(--tip-max);
   background:#fff;
   border:1px solid #e6eaf2;
@@ -101,10 +114,14 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
   box-shadow:0 16px 48px rgba(16,22,40,.12);
   font-size:14px;
   line-height:1.35;
+
+  /* Oculto por defecto y sin capturar puntero */
   opacity:0;
-  pointer-events:auto;          /* <— permite hacer clic dentro del tooltip */
+  pointer-events:none;
+
   transition: opacity .15s ease;
-  z-index:100;                  /* siempre sobre los demás */
+  will-change: transform;
+  z-index:1; /* con .hotspot.open ya está por encima de todo */
   word-wrap: break-word;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -121,10 +138,19 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
   color:var(--brand);
 }
 
-.hotspot:hover .tip,
-.hotspot:focus-within .tip{ opacity:1; }
+/* Mostrar SOLO cuando el hotspot esté "open" (vía JS) */
+.hotspot.open .tip{
+  opacity:1;
+  pointer-events:auto; /* el tooltip abierto sí es interactivo */
+}
 
-/* ---- Orientaciones alternativas activadas por atributos ---- */
+/* Respaldo: si el tooltip no está dentro del .hotspot y recibe .open, se muestra */
+.tip.open{
+  opacity:1;
+  pointer-events:auto;
+}
+
+/* ---- Orientaciones alternativas (controladas por data-attributes en .hotspot) ---- */
 .hotspot[data-align="right"] .tip{
   top:50%; bottom:auto; left: calc(100% + 8px);
   right:auto; transform: translateY(-50%);
@@ -166,39 +192,8 @@ kbd{ background:#111; color:#fff; padding:2px 6px; border-radius:7px; font-weigh
   border:1px solid transparent;
   text-decoration:none;
   font-weight:600;
-  font-size:14px;
+  font-size:10px;
   line-height:1;
   cursor:pointer;
-  user-select:none;
-  box-shadow:0 6px 18px rgba(0,0,0,.12);
-  z-index:70; /* por encima de los hotspots pero por debajo del tooltip */
-  color:#fff;
-  background: var(--brand);
+  user-select:none
 }
-.action-btn:hover{ filter: brightness(1.04); }
-.action-btn:active{ transform: translate(-50%, -50%) scale(0.99); }
-.action-btn:focus{ outline:1px solid #88a8ff; outline-offset:1px; }
-
-/* Variantes */
-.action-btn.secondary{
-  background:#ffffff; color:#0b1220;
-  border-color:#d9dfea;
-}
-.action-btn.ghost{
-  background:rgba(255,255,255,.7); color:#0b1220;
-  border-color:#d9dfea; backdrop-filter: blur(14px);
-}
-
-/* Tamaños */
-.action-btn.sm{ padding:.4rem .7rem; font-size:13px; }
-.action-btn.lg{ padding:.65rem 1.1rem; font-size:15px; }
-
-/* ---- Ajustes responsivos ---- */
-@media (max-width: 640px){
-  :root{ --tip-max: 240px; }
-  .tip{ font-size:33px; }
-  .action-btn{ font-size:33px; padding:.45rem .75rem; }
-}
-/* Botón exacto 640×56 */
-.action-btn.w135h27{ width:135px; height:27px; padding:20; justify-content:center; align-items:center; font-size:10px; border-radius:7px; }
-
